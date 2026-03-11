@@ -290,99 +290,107 @@ def bars_array(history_closes):
 
 # ─── FETCH ──────────────────────────────────────────────────────────────────
 
-def fetch_instruments(instruments, is_yield=False):
-    tickers = [i["ticker"] for i in instruments]
-    print(f"  Fetching {len(tickers)} tickers: {tickers}")
-
-    # Download 1 year of daily history for all tickers at once
+def fetch_single(tk, is_yield=False):
+    """Fetch one ticker individually — most reliable approach for 1W% and YTD%."""
     try:
+        # Download 1 year of daily history for this ticker only
         hist = yf.download(
-            tickers,
+            tk,
             period="1y",
             interval="1d",
             auto_adjust=True,
             progress=False,
-            group_by="ticker",
         )
+
+        # Extract close series — single-ticker download has flat columns
+        if hist is None or hist.empty:
+            raise ValueError("Empty history")
+
+        # Handle both flat and MultiIndex columns
+        if isinstance(hist.columns, pd.MultiIndex):
+            closes_series = hist["Close"][tk].dropna()
+        else:
+            closes_series = hist["Close"].dropna()
+
+        closes     = closes_series.tolist()
+        closes_idx = closes_series.index.tolist()
+
+        if not closes:
+            raise ValueError("No close data")
+
+        price     = closes[-1]
+        prev_close = closes[-2] if len(closes) >= 2 else None
+
+        # 1D change
+        chg_1d = (price - prev_close) / prev_close * 100 if prev_close else None
+
+        # 1W — 5 trading days ago
+        chg_1w = None
+        if len(closes) >= 6:
+            ref_1w = closes[-6]
+            if ref_1w:
+                chg_1w = (price - ref_1w) / ref_1w * 100
+
+        # YTD — first trading day of current year
+        chg_ytd = None
+        current_year = datetime.now().year
+        ytd_pairs = [(dt, v) for dt, v in zip(closes_idx, closes) if dt.year == current_year]
+        if ytd_pairs:
+            ytd_ref = ytd_pairs[0][1]
+            if ytd_ref:
+                chg_ytd = (price - ytd_ref) / ytd_ref * 100
+
+        # 52W high
+        week52_high = max(closes) if closes else None
+        # Try fast_info for a more accurate 52W high
+        try:
+            fi = yf.Ticker(tk).fast_info
+            fh = safe_float(getattr(fi, "year_high", None))
+            if fh:
+                week52_high = fh
+        except Exception:
+            pass
+        chg_52w_hi = (price - week52_high) / week52_high * 100 if week52_high else None
+
+        bars = bars_array(closes)
+
+        return {
+            "price_raw": price,
+            "chg_1d_raw": chg_1d,
+            "chg_1w_raw": chg_1w,
+            "chg_52w_hi_raw": chg_52w_hi,
+            "chg_ytd_raw": chg_ytd,
+            "closes": closes,
+            "bars": bars,
+            "ok": True,
+        }
+
     except Exception as e:
-        print(f"  WARNING: download failed: {e}")
-        hist = None
+        print(f"      fetch_single error for {tk}: {e}")
+        return {"ok": False}
+
+
+def fetch_instruments(instruments, is_yield=False):
+    import pandas as pd  # ensure available
+
+    tickers = [i["ticker"] for i in instruments]
+    print(f"  Fetching {len(tickers)} tickers individually...")
 
     rows = []
     for instr in instruments:
-        tk = instr["ticker"]
-        label = instr["label"]
+        tk      = instr["ticker"]
+        label   = instr["label"]
         holdings = instr.get("holdings", "")
 
-        try:
-            obj = yf.Ticker(tk)
-            info = obj.fast_info
+        result = fetch_single(tk, is_yield=is_yield)
 
-            price = safe_float(getattr(info, "last_price", None))
-            prev_close = safe_float(getattr(info, "previous_close", None))
-            week52_high = safe_float(getattr(info, "year_high", None))
-
-            if price is None:
-                # fallback: use hist last close
-                try:
-                    if len(tickers) == 1:
-                        c = hist["Close"]
-                    else:
-                        c = hist["Close"]
-                    price = safe_float(c.dropna().iloc[-1])
-                    prev_close = safe_float(c.dropna().iloc[-2])
-                except Exception:
-                    pass
-
-            # 1D change
-            if price and prev_close:
-                chg_1d = (price - prev_close) / prev_close * 100
-            else:
-                chg_1d = None
-
-            # Pull history closes for 1W, YTD, 52W Hi%
-            try:
-                if len(tickers) == 1:
-                    closes = hist["Close"].dropna()
-                else:
-                    closes = hist["Close"].dropna()
-                closes = closes.tolist()
-            except Exception:
-                closes = []
-
-            # 1W (5 trading days ago)
-            chg_1w = None
-            if len(closes) >= 6:
-                ref = closes[-6]
-                if ref and price:
-                    chg_1w = (price - ref) / ref * 100
-
-            # YTD: first close of current year
-            try:
-                if len(tickers) == 1:
-                    idx = hist["Close"].dropna().index
-                else:
-                    idx = hist["Close"].dropna().index
-                ytd_closes = [
-                    (i, v) for i, v in zip(idx, closes)
-                    if i.year == datetime.now().year
-                ]
-                if ytd_closes and price:
-                    ytd_ref = ytd_closes[0][1]
-                    chg_ytd = (price - ytd_ref) / ytd_ref * 100
-                else:
-                    chg_ytd = None
-            except Exception:
-                chg_ytd = None
-
-            # 52W Hi%
-            if week52_high is None and closes:
-                week52_high = max(closes)
-            chg_52w_hi = None
-            if week52_high and price:
-                chg_52w_hi = (price - week52_high) / week52_high * 100
-
-            bars = bars_array(closes)
+        if result["ok"]:
+            price      = result["price_raw"]
+            chg_1d     = result["chg_1d_raw"]
+            chg_1w     = result["chg_1w_raw"]
+            chg_52w_hi = result["chg_52w_hi_raw"]
+            chg_ytd    = result["chg_ytd_raw"]
+            bars       = result["bars"]
 
             row = {
                 "ticker": tk,
@@ -401,16 +409,17 @@ def fetch_instruments(instruments, is_yield=False):
                 "bars": bars,
                 "trend": trend_arrow(chg_1w),
             }
-            # For yields: 1D in bps
+
+            # For yields: express 1D change in basis points
             if is_yield and chg_1d is not None and price:
-                bps = chg_1d / 100 * (price / 100) * 10000  # rough bps
+                bps = chg_1d / 100 * (price / 100) * 10000
                 row["chg_1d"] = f"{'+' if bps >= 0 else ''}{bps:.1f}bps"
 
             rows.append(row)
-            print(f"    ✓ {tk}: price={price_str(price, is_yield)}  1D={pct_str(chg_1d)}  1W={pct_str(chg_1w)}")
+            print(f"    ✓ {tk}: price={price_str(price, is_yield)}  1D={pct_str(chg_1d)}  1W={pct_str(chg_1w)}  YTD={pct_str(chg_ytd)}")
 
-        except Exception as e:
-            print(f"    ✗ {tk}: {e}")
+        else:
+            print(f"    ✗ {tk}: failed")
             rows.append({
                 "ticker": tk, "label": label, "holdings": holdings,
                 "price": None, "price_raw": None,
