@@ -48,7 +48,7 @@ jobs:
           git add data/snapshot.json
           git diff --staged --quiet || git commit -m "chore: refresh market data $(date -u +'%Y-%m-%d %H:%M UTC')"
           git pull --rebase origin main
-          git push origin main
+          git push --force-with-lease origin main
 
       # 6. Upload site to GitHub Pages
       - name: Setup GitHub Pages
