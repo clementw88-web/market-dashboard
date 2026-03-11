@@ -328,7 +328,7 @@ def fetch_instruments(instruments, is_yield=False):
                     if len(tickers) == 1:
                         c = hist["Close"]
                     else:
-                        c = hist["Close"][tk]
+                        c = hist["Close"]
                     price = safe_float(c.dropna().iloc[-1])
                     prev_close = safe_float(c.dropna().iloc[-2])
                 except Exception:
@@ -345,7 +345,7 @@ def fetch_instruments(instruments, is_yield=False):
                 if len(tickers) == 1:
                     closes = hist["Close"].dropna()
                 else:
-                    closes = hist["Close"][tk].dropna()
+                    closes = hist["Close"].dropna()
                 closes = closes.tolist()
             except Exception:
                 closes = []
@@ -362,7 +362,7 @@ def fetch_instruments(instruments, is_yield=False):
                 if len(tickers) == 1:
                     idx = hist["Close"].dropna().index
                 else:
-                    idx = hist["Close"][tk].dropna().index
+                    idx = hist["Close"].dropna().index
                 ytd_closes = [
                     (i, v) for i, v in zip(idx, closes)
                     if i.year == datetime.now().year
