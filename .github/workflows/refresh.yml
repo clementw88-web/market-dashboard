@@ -2,14 +2,13 @@ name: Refresh Dashboard Data
 
 on:
   schedule:
-    # Every day at 08:00 SGT = 00:00 UTC
     - cron: "0 0 * * *"
-  workflow_dispatch:  # Allow manual trigger from GitHub Actions UI
+  workflow_dispatch:
 
 permissions:
-  contents: write   # needed to commit data/snapshot.json back to repo
-  pages: write      # needed for GitHub Pages deployment
-  id-token: write   # needed for OIDC Pages auth
+  contents: write
+  pages: write
+  id-token: write
 
 jobs:
   fetch-and-deploy:
@@ -19,38 +18,21 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      # 1. Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # 2. Set up Python
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
 
-      # 3. Install dependencies
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      # 4. Fetch market data
       - name: Fetch market data
         run: python scripts/fetch_data.py
 
-      # 5. Commit snapshot back to repo
-      - name: Commit updated snapshot
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/snapshot.json
-          git diff --staged --quiet || git commit -m "chore: refresh market data $(date -u +'%Y-%m-%d %H:%M UTC')"
-          
-          git push --force-with-lease origin main
-
-      # 6. Upload site to GitHub Pages
       - name: Setup GitHub Pages
         uses: actions/configure-pages@v5
 
